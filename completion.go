@@ -1,9 +1,11 @@
 package gogpt
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 )
 
@@ -104,5 +106,58 @@ func (c *Client) CreateCompletion(
 
 	req = req.WithContext(ctx)
 	err = c.sendRequest(req, &response)
+	return
+}
+
+var dataPrefix = []byte("data: ")
+var doneSequence = []byte("[DONE]")
+
+func (c *Client) CreateStreamingCompletion(
+	ctx context.Context,
+	request CompletionRequest,
+	onPart func(response CompletionResponse),
+) (err error) {
+	request.Stream = true
+	var reqBytes []byte
+	reqBytes, err = json.Marshal(request)
+	if err != nil {
+		return
+	}
+
+	urlSuffix := "/completions"
+	req, err := http.NewRequest("POST", c.fullURL(urlSuffix), bytes.NewBuffer(reqBytes))
+	if err != nil {
+		return
+	}
+
+	req = req.WithContext(ctx)
+	resp, err := c.doRequest(req)
+	reader := bufio.NewReader(resp.Body)
+	defer resp.Body.Close()
+
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			return err
+		}
+		// make sure there isn't any extra whitespace before or after
+		line = bytes.TrimSpace(line)
+		// the completion API only returns data events
+		if !bytes.HasPrefix(line, dataPrefix) {
+			continue
+		}
+		line = bytes.TrimPrefix(line, dataPrefix)
+
+		// the stream is completed when terminated by [DONE]
+		if bytes.HasPrefix(line, doneSequence) {
+			break
+		}
+		output := CompletionResponse{}
+		if err := json.Unmarshal(line, &output); err != nil {
+			return fmt.Errorf("invalid json stream data: %v", err)
+		}
+		onPart(output)
+	}
+
 	return
 }

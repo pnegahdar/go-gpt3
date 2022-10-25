@@ -43,7 +43,7 @@ func NewOrgClient(authToken, org string) *Client {
 	}
 }
 
-func (c *Client) sendRequest(req *http.Request, v interface{}) error {
+func (c *Client) doRequest(req *http.Request) (*http.Response, error) {
 	req.Header.Set("Accept", "application/json; charset=utf-8")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.authToken))
 
@@ -60,9 +60,16 @@ func (c *Client) sendRequest(req *http.Request, v interface{}) error {
 
 	res, err := c.HTTPClient.Do(req)
 	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (c *Client) sendRequest(req *http.Request, v interface{}) error {
+	res, err := c.doRequest(req)
+	if err != nil {
 		return err
 	}
-
 	defer res.Body.Close()
 
 	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusBadRequest {
